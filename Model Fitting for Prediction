@@ -1,0 +1,303 @@
+# Importing packages ------------------------------------------------------
+
+library(readxl)
+library(openxlsx)
+library(nimble)
+library(scoringRules)
+
+
+# Importing data ----------------------------------------------------------
+
+data <- read_excel("path")
+
+s1 <- data$s1
+s2 <- data$s2
+x1 <- data$x1
+x2 <- data$x2
+y <- data$y
+hist(y)
+
+miss.location <- sample(1:195, 50, replace = FALSE)
+
+new.y = y
+new.y[miss.location] = rep(NA, 50)
+new.y
+
+# GBR ---------------------------------------------------------------------
+
+expcov <- nimbleFunction(
+  run = function(dists = double(2), theta = double(0)) {
+    returnType(double(2))
+    n <- dim(dists)[1]
+    result <- matrix(nrow = n, ncol = n, init = FALSE)
+    for (i in 1:n) {
+      for (j in 1:n) {
+        result[i, j] <- exp(-dists[i, j] * theta)
+      }
+    }
+    return(result)
+  }
+)
+
+Code <- nimbleCode({
+  
+  for(i in 1:n){
+    y[i] ~ dbeta(phi*mu[i], phi*(1 - mu[i]))
+    logit(mu[i]) <- beta0 + beta1*x1[i] + beta2*x2[i] + sigma*psi[i]
+  }
+  
+  Sigma[1:n, 1:n] <- expcov(dists[1:n, 1:n], theta)
+  psi[1:n] ~ dmnorm(zero[1:n], cov = Sigma[1:n, 1:n])
+  
+  phi ~ dgamma(1, 0.01)
+  beta0 ~ dnorm(0, var = 100)
+  beta1 ~ dnorm(0, var = 100)
+  beta2 ~ dnorm(0, var = 100)
+  sigma <- exp(sigmastar)
+  sigmastar ~ dunif(-2, 2)
+})
+
+dists <- as.matrix(dist(cbind(s1, s2)))
+Data <- list(y = new.y, x1 = x1, x2 = x2)
+Consts <- list(n = length(y), dists = dists, zero = rep(0, length(y)), theta = max(dists)/3)
+Inits <- list(list(beta0 = 0, beta1 = 0, beta2 = 0, phi = 1, sigmastar = 0,
+                   psi = rep(0, Consts$n)),
+              list(beta0 = 0.1, beta1 = 0.1, beta2 = 0.1, phi = 1.5, sigmastar = 0,
+                   psi = rep(0, Consts$n)))
+mcmc.out1 <- nimbleMCMC(code = Code, data = Data, constants = Consts, inits = Inits,
+                        niter = 800000, nburnin = 300000, thin = 50, nchains = 2, 
+                        monitors = c("beta0", "beta1", "beta2", "phi", "sigma", "y"),
+                        summary = TRUE, WAIC = TRUE)
+
+bayes.est1 = mcmc.out1$summary$all.chain[c(1:5, 5 + miss.location), ]
+
+# IS
+
+IS1 = rep(NA, 50)
+for(i in 1:length(miss.location)){
+  if(y[miss.location[i]] < mcmc.out1$summary$all.chain[miss.location[i] + 5, 4]){
+    IS1[i] = (mcmc.out1$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out1$summary$all.chain[miss.location[i] + 5, 4]) +
+      (2/0.05) * (mcmc.out1$summary$all.chain[miss.location[i] + 5, 4] - y[miss.location[i]])
+  }else if(y[miss.location[i]] > mcmc.out1$summary$all.chain[miss.location[i] + 5, 5]){
+    IS1[i] = (mcmc.out1$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out1$summary$all.chain[miss.location[i] + 5, 4]) +
+      (2/0.05) * (y[miss.location[i]] - mcmc.out1$summary$all.chain[miss.location[i] + 5, 5])
+  }else{
+    IS1[i] = mcmc.out1$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out1$summary$all.chain[miss.location[i] + 5, 4]
+  }
+}
+IS1
+IS1 = mean(IS1)
+
+# CRPS
+
+CRPS1 = c()
+for(i in 1:50){
+  CRPS1[i] = crps_sample(y = y[miss.location[i]], dat = (mcmc.out1$samples$chain1[, miss.location[i] + 5] + mcmc.out1$samples$chain2[, miss.location[i] + 5]) / 2)
+}
+CRPS1 = mean(CRPS1)
+
+# APE
+
+APE1 = mean((bayes.est1[6:55, 1] - y[miss.location]) ^ 2)
+
+# GJtR --------------------------------------------------------------------
+
+djt <- nimbleFunction(
+  run = function(x = double(0), ksi = double(0), delta = double(0), nu = double(0),
+                 log = integer(0, default = 0)){
+    returnType(double(0))
+    logProb <- log(delta * (nu^(nu/2)) * gamma((nu + 1)/2) 
+                   *( nu + ( qt(0.5, df = nu) + delta * ( log(x / (1-x)) - log(ksi / (1-ksi))))^2)^((nu + 1) / -2)
+                   / (x * (1-x) * gamma(0.5) * gamma (nu/2)))
+    if(log) return(logProb)
+    else return(exp(logProb))
+  })
+
+rJt = function(n, ksi, delta, nu){
+  X = rt(n, df = nu)
+  gamma = qt(0.5, df = nu) - delta * log(ksi / (1 - ksi))
+  Y = 1 / (1 + exp(-(X - gamma) / delta))
+  return(Y)
+}
+
+rjt <- nimbleRcall(function(n = integer(0), ksi = double(0), delta = double(0), nu = double(0)){}, 
+                   Rfun = 'rJt', returnType = double(0))
+
+expcov <- nimbleFunction(
+  run = function(dists = double(2), theta = double(0)) {
+    returnType(double(2))
+    n <- dim(dists)[1]
+    result <- matrix(nrow = n, ncol = n, init = FALSE)
+    for (i in 1:n) {
+      for (j in 1:n) {
+        result[i, j] <- exp(-dists[i, j] * theta)
+      }
+    }
+    return(result)
+  }
+)
+
+
+Code <- nimbleCode({
+  
+  for(i in 1:n){
+    y[i] ~ djt(ksi[i], delta, nu)
+    logit(ksi[i]) <- beta0 + beta1*x1[i] + beta2*x2[i] + sigma*psi[i]
+  }
+  
+  Sigma[1:n, 1:n] <- expcov(dists[1:n, 1:n], theta)
+  psi[1:n] ~ dmnorm(zero[1:n], cov = Sigma[1:n, 1:n])
+  
+  delta ~ dgamma(0.01, 0.01)
+  nu ~ dunif(2, 50)
+  beta0 ~ dnorm(0, var = 100)
+  beta1 ~ dnorm(0, var = 100)
+  beta2 ~ dnorm(0, var = 100)
+  sigma <- exp(sigmastar)
+  sigmastar ~ dunif(-2, 2)
+})
+
+dists <- as.matrix(dist(cbind(s1, s2)))
+Data <- list(y = new.y, x1 = x1, x2 = x2)
+Consts <- list(n = length(y), dists = dists, zero = rep(0, length(y)), theta = max(dists)/3)
+Inits <- list(list(beta0 = 0, beta1 = 0, beta2 = 0, delta = 1,
+                   sigmastar = 0, nu = 10, psi = rep(0, Consts$n)),
+              list(beta0 = 0.1, beta1 = 0.1, beta2 = 0.1, delta = 1.1,
+                   sigmastar = 0, nu = 20, psi = rep(0, Consts$n)))
+mcmc.out2 <- nimbleMCMC(code = Code, data = Data, constants = Consts, inits = Inits,
+                        niter = 800000, nburnin = 300000, thin = 2, nchains = 2,
+                        monitors = c("beta0", "beta1", "beta2", "delta", "sigma", "y"),
+                        summary = TRUE, WAIC = TRUE)
+
+bayes.est2 = mcmc.out2$summary$all.chain[c(1:5, 5 + miss.location), ]
+
+# IS
+
+IS2 = rep(NA, 50)
+for(i in 1:length(miss.location)){
+  if(y[miss.location[i]] < mcmc.out2$summary$all.chain[miss.location[i] + 5, 4]){
+    IS2[i] = (mcmc.out2$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out2$summary$all.chain[miss.location[i] + 5, 4]) +
+      (2/0.05) * (mcmc.out2$summary$all.chain[miss.location[i] + 5, 4] - y[miss.location[i]])
+  }else if(y[miss.location[i]] > mcmc.out2$summary$all.chain[miss.location[i] + 5, 5]){
+    IS2[i] = (mcmc.out2$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out2$summary$all.chain[miss.location[i] + 5, 4]) +
+      (2/0.05) * (y[miss.location[i]] - mcmc.out2$summary$all.chain[miss.location[i] + 5, 5])
+  }else{
+    IS2[i] = mcmc.out2$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out2$summary$all.chain[miss.location[i] + 5, 4]
+  }
+}
+IS2 = mean(IS2)
+
+# CRPS
+
+CRPS2 = c()
+for(i in 1:50){
+  CRPS2[i] = crps_sample(y = y[miss.location[i]], dat = (mcmc.out2$samples$chain1[, miss.location[i] + 5] + mcmc.out2$samples$chain2[, miss.location[i] + 5]) / 2)
+}
+CRPS2 = mean(CRPS2)
+
+# APE
+
+APE2 = mean((bayes.est2[6:55, 1] - y[miss.location]) ^ 2)
+
+# GKR ---------------------------------------------------------------------
+
+dKS <- nimbleFunction(
+  run = function(x = double(0), alpha = double(0), omega = double(0),
+                 log = integer(0, default = 0)){
+    returnType(double(0))
+    logProb <- log(alpha*(log(0.5)/log(1 - omega^alpha))*(x^(alpha - 1))*(1 - (x^alpha))^((log(0.5)/log(1 - omega^alpha)) - 1))
+    if(log) return(logProb)
+    else return(exp(logProb))
+  })
+
+rKs = function(n, alpha, omega){
+  U = runif(n)
+  X = rep(NA, n)
+  for(i in 1:n){
+    X[i] = (1 - (U[i]^(1/(log(0.5)/log(1 - omega^alpha)))))^(1/alpha)
+  }
+  return(X)
+}
+
+rKS <- nimbleRcall(function(n = integer(0), alpha = double(0), omega = double(0)){}, 
+                   Rfun = 'rKs', returnType = double(0))
+
+registerDistributions(list(
+  dKS = list(
+    BUGSdist = "dKS(alpha, omega)",
+    types = c('alpha = double(0)', 'omega = double(0)')
+  )
+))
+
+expcov <- nimbleFunction(
+  run = function(dists = double(2), theta = double(0)) {
+    returnType(double(2))
+    n <- dim(dists)[1]
+    result <- matrix(nrow = n, ncol = n, init = FALSE)
+    for (i in 1:n) {
+      for (j in 1:n) {
+        result[i, j] <- exp(-dists[i, j] * theta)
+      }
+    }
+    return(result)
+  }
+)
+
+Code <- nimbleCode({
+  for(i in 1:n){
+    y[i] ~ dKS(phi, mu[i])
+    logit(mu[i]) <- beta0 + beta1*x1[i] + beta2*x2[i] + sigma*psi[i]
+  }
+  
+  Sigma[1:n, 1:n] <- expcov(dists[1:n, 1:n], theta)
+  psi[1:n] ~ dmnorm(zero[1:n], cov = Sigma[1:n, 1:n])
+  
+  phi ~ dgamma(0.01, 0.01)
+  beta0 ~ dnorm(0, var = 100)
+  beta1 ~ dnorm(0, var = 100)
+  beta2 ~ dnorm(0, var = 100)
+  sigma <- exp(sigmastar)
+  sigmastar ~ dunif(-2, 2)
+})
+
+dists <- as.matrix(dist(cbind(s1, s2)))
+Data <- list(y = new.y, x1 = x1, x2 = x2)
+Consts <- list(n = length(y), dists = dists, zero = rep(0, length(y)), theta = max(dists)/3)
+Inits <- list(list(beta0 = 0, beta1 = 0, beta2 = 0, phi = 1, sigmastar = 0,
+                   psi = rep(0, Consts$n)),
+              list(beta0 = 0.1, beta1 = 0.1, beta2=0.1, phi = 1.1, sigmastar = 0.1,
+                   psi = rep(0, Consts$n)))
+mcmc.out3 <- nimbleMCMC(code = Code, data = Data, constants = Consts, inits = Inits,
+                        niter = 800000, nburnin = 300000, thin = 5, nchains = 2,  
+                        monitors = c("beta0", "beta1", "beta2", "phi", "sigma", "y"),
+                        summary = TRUE, WAIC = TRUE)
+
+bayes.est3 = mcmc.out3$summary$all.chain[c(1:5, 5 + miss.location), ]
+
+# IS
+
+IS3 = rep(NA, 50)
+for(i in 1:length(miss.location)){
+  if(y[miss.location[i]] < mcmc.out3$summary$all.chain[miss.location[i] + 5, 4]){
+    IS3[i] = (mcmc.out3$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out3$summary$all.chain[miss.location[i] + 5, 4]) +
+      (2/0.05) * (mcmc.out3$summary$all.chain[miss.location[i] + 5, 4] - y[miss.location[i]])
+  }else if(y[miss.location[i]] > mcmc.out3$summary$all.chain[miss.location[i] + 5, 5]){
+    IS3[i] = (mcmc.out3$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out3$summary$all.chain[miss.location[i] + 5, 4]) +
+      (2/0.05) * (y[miss.location[i]] - mcmc.out3$summary$all.chain[miss.location[i] + 5, 5])
+  }else{
+    IS3[i] = mcmc.out3$summary$all.chain[miss.location[i] + 5, 5] - mcmc.out3$summary$all.chain[miss.location[i] + 5, 4]
+  }
+}
+IS3 = mean(IS3)
+
+# CRPS
+
+CRPS3 = c()
+for(i in 1:50){
+  CRPS3[i] = crps_sample(y = y[miss.location[i]], dat = (mcmc.out3$samples$chain1[, miss.location[i] + 5] + mcmc.out3$samples$chain2[, miss.location[i] + 5]) / 2)
+}
+CRPS3 = mean(CRPS3)
+
+# APE
+
+APE3 = mean((bayes.est3[6:55, 1] - y[miss.location]) ^ 2)
