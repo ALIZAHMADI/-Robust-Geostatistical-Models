@@ -38,10 +38,11 @@ s1 <- data$s1
 s2 <- data$s2
 dist_f <- as.matrix(dist(cbind(s1, s2)))
 
-# Skew-normal RF ----------------------------------------------------------
+# Generating random effects -----------------------------------------------
+# Skew-normal RF
 
 n = 200
-sigma = 0.5
+sigma = 1
 sigma2 = 0.5
 theta = max(dist_f) / 3
 
@@ -64,7 +65,6 @@ beta0 = -0.1
 phi = 50
 alpha = 0.2
 
-
 gamma = numeric(n)
 theta = numeric(n)
 z = numeric(n)
@@ -86,11 +86,10 @@ y = numeric(n)
 par(mfrow=c(2,1))
 hist(y)
 plot(density(y))
-min(y)
-max(y)
-mean(y)
-median(y)
-# Saving ------------------------------------------------------------------
+
+######################################
+# Saving to Excel
+######################################
 
 data <- data.frame(y, s1, s2)
-write.xlsx(data, file = "C:/Users/A/Desktop/sim1/datasets/b11.xlsx", rowNames = FALSE)
+write.xlsx(data, file = "Path", rowNames = FALSE)
