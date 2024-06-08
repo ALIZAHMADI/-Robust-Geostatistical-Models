@@ -1,4 +1,30 @@
-# Packages ----------------------------------------------------------------
+######################################
+# Generating Locations
+######################################
+
+# Importing packages ------------------------------------------------------
+
+library(openxlsx)
+library(lhs)
+
+# Defining locations ------------------------------------------------------
+
+n = 200
+d = 2
+s = maximinLHS(n, d)
+s1 = s[, 1]
+s2 = s[, 2]
+
+# Saving to an EXCEL File -------------------------------------------------
+
+data <- data.frame(s1, s2)
+write.xlsx(data, file = "path", rowNames = FALSE)
+
+######################################
+# Generating Response Variables
+######################################
+
+# Importing packages ------------------------------------------------------
 
 library(MASS)
 library(lhs)
@@ -7,7 +33,7 @@ library(readxl)
 
 # Importing locations -----------------------------------------------------
 
-data <- read_excel("C:/Users/A/Desktop/sim1/loc.xlsx")
+data <- read_excel("Path")
 s1 <- data$s1
 s2 <- data$s2
 dist_f <- as.matrix(dist(cbind(s1, s2)))
