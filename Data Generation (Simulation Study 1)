@@ -21,7 +21,7 @@ data <- data.frame(s1, s2)
 write.xlsx(data, file = "path", rowNames = FALSE)
 
 ######################################
-# Generating Response Variable
+# Generating Response Variables
 ######################################
 
 # Importing packages ------------------------------------------------------
