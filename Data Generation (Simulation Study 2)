@@ -1,0 +1,70 @@
+# Packages ----------------------------------------------------------------
+
+library(MASS)
+library(lhs)
+library(openxlsx)
+library(readxl)
+
+# Importing locations -----------------------------------------------------
+
+data <- read_excel("C:/Users/A/Desktop/sim1/loc.xlsx")
+s1 <- data$s1
+s2 <- data$s2
+dist_f <- as.matrix(dist(cbind(s1, s2)))
+
+# Skew-normal RF ----------------------------------------------------------
+
+n = 200
+sigma = 0.5
+sigma2 = 0.5
+theta = max(dist_f) / 3
+
+cov_f = matrix(rep(NA, n * n), n, n)
+
+for (i in 1:n) {
+  for (j in 1:n) {
+    cov_f[i, j] <- sigma * exp(-dist_f[i, j] * theta)
+  }
+}
+
+alpha = -5
+psi = mvrnorm(n = 2, mu = rep(0, n), Sigma = cov_f)
+psi.star = (alpha * abs(psi[1, ]) + psi[2, ]) * sigma2
+plot(density(psi.star), col = "red", lwd = 2)
+
+# Beta Rectangular --------------------------------------------------------
+
+beta0 = -0.1
+phi = 50
+alpha = 0.2
+
+
+gamma = numeric(n)
+theta = numeric(n)
+z = numeric(n)
+mu = numeric(n)
+y = numeric(n)
+
+  for( i in 1:n){
+    gamma[i] = exp(beta0 + psi.star[i])/(1 + exp(beta0 + psi.star[i]))
+    theta[i] =  alpha * (1 - abs(2 * gamma[i] - 1 ))
+    z[i] = rbinom(1, 1, theta[i])
+    mu[i] = (gamma[i] - 0.5 * theta[i])/(1 - theta[i])
+    if (z[i] == 1) { 
+      y[i] = runif(1, 0, 1)
+    }
+    else {
+      y[i] = rbeta(1, mu[i] * phi, (1- mu[i]) * phi) 
+    }
+  }
+par(mfrow=c(2,1))
+hist(y)
+plot(density(y))
+min(y)
+max(y)
+mean(y)
+median(y)
+# Saving ------------------------------------------------------------------
+
+data <- data.frame(y, s1, s2)
+write.xlsx(data, file = "C:/Users/A/Desktop/sim1/datasets/b11.xlsx", rowNames = FALSE)
