@@ -1,0 +1,101 @@
+######################################
+# Generating Locations
+######################################
+
+# Importing packages ------------------------------------------------------
+
+library(openxlsx)
+library(lhs)
+
+# Defining locations ------------------------------------------------------
+
+n = 200
+d = 2
+s = maximinLHS(n, d)
+s1 = s[, 1]
+s2 = s[, 2]
+
+# Saving to an EXCEL File -------------------------------------------------
+
+data <- data.frame(s1, s2)
+write.xlsx(data, file = "path", rowNames = FALSE)
+
+######################################
+# Generating Response Variable
+######################################
+
+# Importing packages ------------------------------------------------------
+
+library(MASS)
+library(lhs)
+library(openxlsx)
+library(readxl)
+
+# Importing locations -----------------------------------------------------
+
+data <- read_excel("path")
+s1 <- data$s1
+s2 <- data$s2
+dist_f <- as.matrix(dist(cbind(s1, s2)))
+
+# covariates and coefficients ---------------------------------------------
+
+n = 200
+x1 <- rnorm(n)
+x2 <- rnorm(n)
+
+beta0 = -0.4
+beta1 = 0.3
+beta2 = 0.2
+phi = 50
+
+# Generating random effects -----------------------------------------------
+
+sigma2 = 0.75
+theta = max(dist_f) / 3
+
+cov_f = matrix(rep(NA, n * n), n, n)
+for (i in 1:n) {
+  for (j in 1:n) {
+    cov_f[i, j] <- sigma2 * exp(-dist_f[i, j] * theta)
+  }
+}
+psi.star = mvrnorm(n = 1, mu = rep(0, n), Sigma = cov_f)
+plot(density(psi.star), col = "red", lwd = 2)
+
+# Generating from the GBR model -------------------------------------------
+
+mu = rep(NA, n)
+y = rep(NA, n)
+
+for (i in 1:n) {
+  mu[i] <- exp(beta0 + beta1 * x1[i] + beta2 * x2[i] + psi.star[i]) /
+    (1 + exp(beta0 + beta1 * x1[i] + beta2 * x2[i] + psi.star[i]))
+  y[i] <- rbeta(1, phi * mu[i], phi * (1 - mu[i]))
+}
+
+plot(density(y), col = "red", lwd = 2)
+
+# Contamination -----------------------------------------------------------
+
+y.star = y
+
+for (i in 196:200) {
+  y.star[i] <- runif(1, 0.95, 1)
+}
+
+plot(density(y.star), col = "red", lwd = 2)
+hist(y.star, nclass = 10)
+boxplot(y.star)
+
+# saving to Excel ---------------------------------------------------------
+
+## no contamination
+
+data <- data.frame(y, x1, x2, s1, s2, psi.star)
+write.xlsx(data, file = "path", rowNames = FALSE)
+
+## contaminated
+
+data <- data.frame(y.star, x1, x2, s1, s2, psi.star)
+write.xlsx(data, file = "path", rowNames = FALSE)
