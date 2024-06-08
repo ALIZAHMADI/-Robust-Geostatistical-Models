@@ -18,7 +18,7 @@ s2 = s[, 2]
 # Saving to an EXCEL File -------------------------------------------------
 
 data <- data.frame(s1, s2)
-write.xlsx(data, file = "path", rowNames = FALSE)
+write.xlsx(data, file = "Path", rowNames = FALSE)
 
 ######################################
 # Generating Response Variables
@@ -95,7 +95,7 @@ boxplot(y.star)
 ## No contamination
 
 data <- data.frame(y, x1, x2, s1, s2, psi.star)
-write.xlsx(data, file = "path", rowNames = FALSE)
+write.xlsx(data, file = "Path", rowNames = FALSE)
 
 ## Contaminated
 
