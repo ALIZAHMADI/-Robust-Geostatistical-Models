@@ -5,7 +5,6 @@ library(openxlsx)
 library(nimble)
 library(scoringRules)
 
-
 # Importing data ----------------------------------------------------------
 
 data <- read_excel("path")
@@ -17,13 +16,17 @@ x2 <- data$x2
 y <- data$y
 hist(y)
 
-miss.location <- sample(1:195, 50, replace = FALSE)
+# Randomly clearing response values at 50 locations -----------------------
+
+miss.location <- sample(1:200, 50, replace = FALSE)
 
 new.y = y
 new.y[miss.location] = rep(NA, 50)
 new.y
 
-# GBR ---------------------------------------------------------------------
+######################################
+# GBR Model
+######################################
 
 expcov <- nimbleFunction(
   run = function(dists = double(2), theta = double(0)) {
@@ -100,7 +103,9 @@ CRPS1 = mean(CRPS1)
 
 APE1 = mean((bayes.est1[6:55, 1] - y[miss.location]) ^ 2)
 
-# GJtR --------------------------------------------------------------------
+######################################
+# GJtR Model
+######################################
 
 djt <- nimbleFunction(
   run = function(x = double(0), ksi = double(0), delta = double(0), nu = double(0),
@@ -199,7 +204,9 @@ CRPS2 = mean(CRPS2)
 
 APE2 = mean((bayes.est2[6:55, 1] - y[miss.location]) ^ 2)
 
-# GKR ---------------------------------------------------------------------
+######################################
+# GKR Model
+######################################
 
 dKS <- nimbleFunction(
   run = function(x = double(0), alpha = double(0), omega = double(0),
